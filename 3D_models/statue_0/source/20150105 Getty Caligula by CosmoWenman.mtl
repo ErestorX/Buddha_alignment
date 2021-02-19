@@ -1,0 +1,22 @@
+# Blender MTL File: '20150105b GettyCaligula.blend'
+# Material Count: 2
+
+newmtl tex_0.jpg
+Ns 56.862745
+Ka 0.000000 0.000000 0.000000
+Kd 0.800000 0.800000 0.800000
+Ks 0.099899 0.080220 0.070360
+Ni 1.000000
+d 1.000000
+illum 2
+map_Kd tex_0.jpg
+
+newmtl tex_1.jpg
+Ns 56.862745
+Ka 0.000000 0.000000 0.000000
+Kd 0.800000 0.800000 0.800000
+Ks 0.100000 0.080449 0.070387
+Ni 1.000000
+d 1.000000
+illum 2
+map_Kd tex_1.jpg
