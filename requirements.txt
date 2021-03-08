@@ -1,17 +1,16 @@
-torch~=1.7.1
-torchvision~=0.8.2
-matplotlib~=3.3.4
-numpy~=1.19.5
-opencv-python~=4.5.1.48
-imageio~=2.9.0
+torch
+torchvision
+matplotlib
+numpy
+opencv-python
+imageio
 imageio-ffmpeg
-pyyaml~=5.4.1
-tqdm~=4.56.2
-argparse~=1.4.0
-cython~=0.29.21
-scikit-image # skimage
-scipy~=1.5.4
-onnxruntime~=1.6.0
+pyyaml
+tqdm
+argparse
+cython
+scikit-image
+scipy
+onnxruntime
 
 future-fstrings
-bpy

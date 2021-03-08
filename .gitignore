@@ -1,4 +1,6 @@
-3D_models/
+BlenderFiles/3D_models/
+BlenderFiles/model_frames/
+Buddha_ds.pkl
 
 .DS_Store
 **/.DS_Store
@@ -20,6 +22,7 @@ websmooth.py
 demo_webcam.py
 
 examples/inputs/spoof/
+examples/results/
 weights/*.onnx
 configs/ncc_code_53215.npy
 pr.*
