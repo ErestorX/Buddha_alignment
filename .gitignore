@@ -8,9 +8,6 @@ Buddha_ds.pkl
 __pycache__
 **/__pycache__
 
-.idea/
-tmp/
-
 .ipynb_checkpoints/
 
 *gif.py
