@@ -2,7 +2,10 @@
   "ds_path": "data",
   "split_test_eval": [0.15, 0.15],
   "save_intermediate": false,
-  "save_predict": true,
-  "save_eval": true,
+  "save_predict": false,
+  "save_eval": false,
   "path_products": "logs/pipeline",
-  "reset_ds": false}
+  "reset_ds": true,
+  "eval": false,
+  "train": false,
+  "test":  false}

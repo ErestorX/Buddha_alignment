@@ -90,8 +90,10 @@ class Image:
         # fig, ax = plt.subplots()
         # ax.imshow(self.data)
         # rect_xy, width, height = self.bbox[:2], self.bbox[2] - self.bbox[0], self.bbox[3] - self.bbox[1]
+        # title = "x1={},y1={}-x2={},y2={} - x0={},y0={}-W={},H={}".format(int(self.bbox[0]), int(self.bbox[1]), int(self.bbox[2]), int(self.bbox[3]), int(rect_xy[0]), int(rect_xy[1]), int(width), int(height))
         # rect = patches.Rectangle(rect_xy, width, height, linewidth=1, edgecolor='b', facecolor='none')
         # ax.add_patch(rect)
+        # ax.set_title(title)
         # plt.savefig(os.path.join('dataset_tmp', self.id))
 
 
@@ -164,6 +166,7 @@ class Config:
             self.save_eval = conf_dict["save_eval"]
             self.path_products = conf_dict["path_products"]
             self.reset_ds = conf_dict["reset_ds"]
+            self.train, self.test, self.eval = conf_dict["train"], conf_dict["test"], conf_dict["eval"]
             base = 'logs/pipeline'
             i = 1
             while os.path.exists(self.path_products):

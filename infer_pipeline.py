@@ -241,7 +241,9 @@ if __name__ == '__main__':
     train_data, train_label = train_ds
     eval_data, eval_label = eval_ds
     model = Pipeline(conf)
-    # for data in train_data[:1]:
-    #     out = model.predict(data)
-    for data, label in zip(eval_data, eval_label):
-        error = model.eval(data, label)
+    if conf.train:
+        for data in train_data:
+            out = model.predict(data)
+    if conf.eval:
+        for data, label in zip(eval_data, eval_label):
+            error = model.eval(data, label)
