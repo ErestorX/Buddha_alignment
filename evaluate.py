@@ -4,11 +4,10 @@ import cv2
 import yaml
 from FaceBoxes.FaceBoxes_ONNX import FaceBoxes_ONNX
 from TDDFA_ONNX import TDDFA_ONNX
-from utils.functions import draw_landmarks, get_suffix
-import json
-import numpy as np
+from utils.functions import draw_landmarks
 from buddha_loader import load_ds
 import random
+import numpy as np
 
 
 def get_data_from_ids(dir_path, ids):
@@ -37,9 +36,34 @@ def load_model_ds(ds_path):
     return ds
 
 
-if __name__ == '__main__':
+def evaluate_buddha():
+    ds = load_ds('data')
+    cfg = yaml.load(open('configs/mb1_120x120.yml'), Loader=yaml.SafeLoader)
+    os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
+    os.environ['OMP_NUM_THREADS'] = '4'
+    tddfa = TDDFA_ONNX(**cfg)
+    error_ds = []
+    for artifact_id in ds:
+        errors_artifact = []
+        for picture in ds[artifact_id]['pictures']:
+            image = ds[artifact_id]['pictures'][picture]['data']
+            face_bbox = ds[artifact_id]['pictures'][picture]['bbox']
+            gt_3d = ds[artifact_id]['pictures'][picture]['precomputed_gt']
+            param_lst, roi_box_lst = tddfa(image, [face_bbox])
+            pred_3d = tddfa.recon_vers(param_lst, roi_box_lst, dense_flag=False)
+            pred_3d = pred_3d[0].T
+            errors_pict = []
+            for gt, pred in zip(gt_3d, pred_3d):
+                errors_pict.append(np.linalg.norm(gt - pred))
+            errors_artifact.append(np.sum(errors_pict))
+            print("Error on image", picture.split(".")[0], "=", "{:.2f}".format(np.sum(errors_pict)))
+        error_ds.append(np.sum(errors_artifact))
+        print("Error on", artifact_id, "=", "{:.2f}".format(np.sum(errors_artifact)))
+    print("Error on dataset =", "{:.2f}".format(np.sum(error_ds)))
+
+
+def evaluate_Blender():
     ds = load_model_ds('BlenderFiles/model_frames')
-    # ds = load_ds('data') # load Buddha dataset, second arg default to True to remove singleton
     cfg = yaml.load(open('configs/mb1_120x120.yml'), Loader=yaml.SafeLoader)
     os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
     os.environ['OMP_NUM_THREADS'] = '4'
@@ -50,6 +74,7 @@ if __name__ == '__main__':
             wfp = f'examples/results/' + artifact_id + '_' + str(id) + '_2d_sparse.jpg'
 
             boxes = face_boxes(img)
+            print(boxes)
             n = len(boxes)
             if n == 0:
                 print(f'No face detected, exit')
@@ -59,3 +84,8 @@ if __name__ == '__main__':
             param_lst, roi_box_lst = tddfa(img, boxes)
             ver_lst = tddfa.recon_vers(param_lst, roi_box_lst, dense_flag=False)
             draw_landmarks(img, ver_lst, dense_flag=False, wfp=wfp)
+
+
+if __name__ == '__main__':
+    # evaluate_Blender()
+    evaluate_buddha()
