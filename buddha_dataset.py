@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 
 
-def ldk_on_im(ldk, mean, max, trans, inv=False):
+def ldk_on_im(ldk, trans, mean, max, inv=False):
     tmp = np.asarray(ldk.T.tolist() + [list([1] * 68)])
     if inv:
         tmp = (tmp.T @ np.linalg.inv(trans)).T
@@ -66,6 +66,7 @@ class Artifact:
         self.gt = np.asarray(json_data["avg_model"]) + np.asarray(json_data["hand_updates"])
         picture_ids = []
         self.pictures = []
+        self.list_transform = []
         tmp = [os.path.basename(picture).split('\\')[-1] for picture in json_data['norm_preds_dict'].keys()]
         for file in tmp:
             if os.path.exists(os.path.join(ds_path, self.id, file)):
@@ -73,7 +74,20 @@ class Artifact:
         keys = [f for f in json_data['norm_preds_dict'].keys()]
         for file, key in zip(picture_ids, keys):
             path2img = os.path.join(ds_path, self.id, file)
-            self.pictures.append(Image(path2img, key, json_data))
+            img_obj = Image(path2img, key, json_data)
+            self.pictures.append(img_obj)
+            self.list_transform.append(img_obj.cropped_transformation)
+
+    def print_gt(self):
+        if len(self.pictures) > 0:
+            size = int(np.sqrt(len(self.pictures))) + 1
+            nb_line = size - 1 if (len(self.pictures) <= size*size - size) else size
+            fig, ax = plt.subplots(nb_line, size, figsize=(25, 25), squeeze=False)
+            for id, pict in enumerate(self.pictures):
+                im, cloud = pict.get_im_and_cloud()
+                ax[id // size, id % size].imshow(im)
+                ax[id // size, id % size].scatter(cloud[:, 0], cloud[:, 1], c="red", s=10)
+            plt.savefig("/home/hlemarchant/buddha_allign_report/" + self.id + "_visu_gt")
 
 
 class Image:
@@ -84,17 +98,15 @@ class Image:
         pred, self.mean, self.bbox = np.asarray(pred), np.asarray(self.mean), np.asarray(self.bbox)
         self.transformation = get_transform(np.asarray(artifact_data['avg_model']), pred)
         self.precomputed_gt = ldk_on_im(
-            np.asarray(artifact_data['avg_model']) + np.asarray(artifact_data['hand_updates']),
-            self.mean, self.max, self.transformation, True)
+            np.asarray(artifact_data['avg_model']) + np.asarray(artifact_data['hand_updates']), self.transformation,
+            self.mean, self.max, True)
         self.cropped_data, self.cropped_gt = crop_pict(self.data, self.bbox, self.precomputed_gt)
-        # fig, ax = plt.subplots()
-        # ax.imshow(self.data)
-        # rect_xy, width, height = self.bbox[:2], self.bbox[2] - self.bbox[0], self.bbox[3] - self.bbox[1]
-        # title = "x1={},y1={}-x2={},y2={} - x0={},y0={}-W={},H={}".format(int(self.bbox[0]), int(self.bbox[1]), int(self.bbox[2]), int(self.bbox[3]), int(rect_xy[0]), int(rect_xy[1]), int(width), int(height))
-        # rect = patches.Rectangle(rect_xy, width, height, linewidth=1, edgecolor='b', facecolor='none')
-        # ax.add_patch(rect)
-        # ax.set_title(title)
-        # plt.savefig(os.path.join('dataset_tmp', self.id))
+        self.transformation = [self.transformation, self.mean, self.max]
+        self.cropped_transformation = get_transform(np.asarray(artifact_data['avg_model']), self.cropped_gt)
+        self.cropped_transformation = [self.cropped_transformation, np.mean(self.cropped_gt, axis=0), self.cropped_gt.max()]
+
+    def get_im_and_cloud(self):
+        return self.cropped_data, self.cropped_gt[:, :2]
 
 
 class BuddhaDataset:
@@ -115,11 +127,11 @@ class BuddhaDataset:
     def get_datasets(self):
         data = []
         label = []
-        for art in self.artifacts:
-            label.append([art.id, art.gt])
+        for i, art in enumerate(self.artifacts):
+            label.append([art.id, art.gt, art.list_transform])
             list_data = []
             for img in art.pictures:
-                list_data.append([img.id, img.cropped_data])
+                list_data.append([img.id, img.cropped_data, img.data])
             data.append([art.id, list_data])
         label = np.asarray(label)
         indexes = list(range(len(label)))
@@ -137,19 +149,24 @@ class BuddhaDataset:
         return np.asarray(train_ds), np.asarray(test_ds), np.asarray(eval_ds)
 
     def write_ds(self, ds_path):
-        print("INFO: Re generating the dataset")
+        print("INFO: Generating the dataset")
         if os.path.exists(self.pickle_ds_name):
             os.remove(self.pickle_ds_name)
         artifact_json = [name for name in os.listdir(ds_path) if os.path.isfile(os.path.join(ds_path, name))]
+        artifact_folder = [name for name in os.listdir(ds_path) if os.path.isdir(os.path.join(ds_path, name))]
         annotated_id = [name.split('.')[0] for name in artifact_json]
+        print("INFO:", len(annotated_id), "annotated artifacts detected out of", len(artifact_folder), "artifacts")
+        not_annotated = [name for name in artifact_folder if name not in annotated_id]
         for id in annotated_id:
             with open(os.path.join(ds_path, id + '.json')) as json_file:
                 art = Artifact(json_file, ds_path)
                 if self.config.remove_singleton:
-                    if len(art.pictures) != 1:
+                    if len(art.pictures) > 1:
                         self.artifacts.append(art)
                 else:
                     self.artifacts.append(art)
+        if self.config.remove_singleton:
+            print("INFO: Writing", len(self.artifacts), "artifacts to", self.pickle_ds_name)
         with open(self.pickle_ds_name, 'wb') as pkl_file:
             pickle.dump(self.artifacts, pkl_file)
 
@@ -161,9 +178,11 @@ class Config:
             self.remove_singleton = conf_dict["remove_singleton"]
             self.ds_path = conf_dict["ds_path"]
             self.split_test_eval = conf_dict["split_test_eval"]
+            self.expand_crop_region = conf_dict["expand_crop_region"]
             self.save_intermediate = conf_dict["save_intermediate"]
             self.save_predict = conf_dict["save_predict"]
             self.save_eval = conf_dict["save_eval"]
+            self.save_net_error = conf_dict["save_net_error"]
             self.path_products = conf_dict["path_products"]
             self.reset_ds = conf_dict["reset_ds"]
             self.train, self.test, self.eval = conf_dict["train"], conf_dict["test"], conf_dict["eval"]
@@ -173,6 +192,7 @@ class Config:
                 self.path_products = base + str(i)
                 i += 1
             if self.save_intermediate or self.save_predict or self.save_eval:
+                print("INFO: writing products in", self.path_products)
                 os.mkdir(self.path_products)
 
 

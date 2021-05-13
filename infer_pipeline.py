@@ -1,11 +1,12 @@
 import os
 import yaml
+import shutil
 import numpy as np
 import matplotlib.pyplot as plt
 from TDDFA_ONNX import TDDFA_ONNX
 import matplotlib.patches as patches
 from mpl_toolkits.mplot3d import Axes3D
-from buddha_dataset import BuddhaDataset, Artifact, Image, Config, get_transform
+from buddha_dataset import BuddhaDataset, Artifact, Image, Config, get_transform, ldk_on_im
 
 
 class Pipeline:
@@ -17,36 +18,42 @@ class Pipeline:
         self.save_intermediate = config.save_intermediate
         self.save_predict = config.save_predict
         self.save_eval = config.save_eval
+        self.save_net_error = config.save_net_error
         self.path_products = config.path_products
         self.id_art = None
         self.id_img = None
 
+    def train(self, input, label):
+        net_error = self._get_network_error(input, label)
+
     def predict(self, input):
         self.id_art = input[0].split("_")[-1]
         list_x = []
+        list_transform = []
         for image in input[1]:
             self.id_img = image[0].split(".")[0]
             x = self._get_landmarks(image[1])
             attention = self._get_attention(x)
-            x = self._normalize_position(x)
+            transform, x = self._normalize_position(x)
             x = self._preprocess_consensus(x, attention)
             list_x.append(x)
+            list_transform.append(transform)
         list_x = np.asarray(list_x)
         x = self._get_consensus(list_x)
         self.id_art, self.id_img = None, None
-        return x
+        return list_transform, x
 
     def eval(self, input, label):
         revert_save_policy = False
         if self.save_intermediate:
             revert_save_policy = True
             self.save_intermediate = False
-        x = self.predict(input)
-        self.id_art, gt = label
-        gt = self._normalize_position(gt)
+        list_transform, x = self.predict(input)
+        self.id_art, gt, list_transform_gt = label
+        transform, gt = self._normalize_position(gt)
         errors = [np.linalg.norm(pt_gt - pt_x) for pt_x, pt_gt in zip(x, gt)]
         if self.save_eval:
-            self._save_eval(x, gt, errors)
+            self._save_eval(input, x, list_transform, gt,list_transform_gt, errors)
         if revert_save_policy:
             self.save_intermediate = True
         return errors
@@ -96,11 +103,25 @@ class Pipeline:
         trans = get_transform(A, B)
         tmp = np.asarray(input.T.tolist() + [list([1] * 68)])
         x = (tmp.T @ trans).T[:3].T
-        _x = x - np.mean(x, axis=0)
-        x = (_x / (2 * _x.max())) + .5
+        _mean = np.mean(x, axis=0)
+        _x = x - _mean
+        _max = _x.max()
+        x = (_x / (2 * _max)) + .5
+
         if self.save_intermediate:
             self._save_normalize_position(x)
-        return x
+        return [trans, _mean, _max], x
+    
+    def _revert_normalize_position(self, input, trans, _mean, _max, gt=False):
+        if gt:
+            x = input
+            x = np.asarray(x.T.tolist() + [list([1] * 68)])
+            x = (x.T @ np.linalg.inv(trans))
+            return ((x[:, :3]) * _max/2) + _mean
+        else:
+            x = ((input - .5) * 2 * _max) + _mean
+            x = np.asarray(x.T.tolist() + [list([1] * 68)])
+            return (x.T @ np.linalg.inv(trans))[:, :3]
 
     def _preprocess_consensus(self, input, attention):
         assert input.ndim == 2 and attention.ndim == 2
@@ -121,14 +142,47 @@ class Pipeline:
             self._save_get_consensus(x)
         return x
 
+    def _get_network_error(self, input, label):
+        list_transform, x = self.predict(input)
+        _, gt, list_transform_gt = label
+        list_error = []
+        for transform, transform_gt in zip(list_transform, list_transform_gt):
+            proj_x = self._revert_normalize_position(x, transform[0], transform[1], transform[2])
+            proj_gt = self._revert_normalize_position(gt, transform_gt[0], transform_gt[1], transform_gt[2], True)
+            list_error.append(np.linalg.norm(proj_gt - proj_x, axis=1))
+        if self.save_net_error:
+            # self._save_pred_vs_gt_per_face(input, x, list_transform, gt, list_transform_gt)
+            self._save_report(input, x, list_transform, gt, list_transform_gt)
+        return list_error
+
+    def _save_report(self, input, x, list_transform, gt, list_transform_gt):
+        if not os.path.exists(os.path.join("/home/hlemarchant/report", input[0])):
+            os.mkdir(os.path.join("/home/hlemarchant/report", input[0]))
+        for data, transform, transform_gt in zip(input[1], list_transform, list_transform_gt):
+            path = os.path.join("/home/hlemarchant/report", input[0], "image_" + data[0].split(".")[0])
+            if not os.path.exists(path):
+                os.mkdir(path)
+            plt.imsave(os.path.join(path, "full.png"), data[2])
+            fig, ax = plt.subplots()
+            ax.imshow(data[1])
+            tmp = self._revert_normalize_position(x, transform[0], transform[1], transform[2])
+            cloud = tmp[:, :2]
+            ax.scatter(cloud[:, 0], cloud[:, 1], c="r", s=15)
+            plt.savefig(os.path.join(path, "pred"))
+            fig, ax = plt.subplots()
+            ax.imshow(data[1])
+            tmp = self._revert_normalize_position(gt, transform_gt[0], transform_gt[1], transform_gt[2], True)
+            cloud = tmp[:, :2]
+            ax.scatter(cloud[:, 0], cloud[:, 1], c="r", s=15)
+            plt.savefig(os.path.join(path, "gt"))
+
     def _save_get_landmarks(self, input, x):
         path = os.path.join(self.path_products, '0_SingleViewAlign')
         if not os.path.exists(path):
             os.mkdir(path)
         fig, ax = plt.subplots()
         ax.imshow(input)
-        poly = patches.Polygon(x[:, :2], linewidth=.5, edgecolor='r', facecolor='none')
-        ax.add_patch(poly)
+        ax.scatter(x[:, 0], x[:, 1], c="red", s=5)
         plt.savefig(os.path.join(path, self.id_art + "_" + self.id_img))
 
     def _save_get_attention(self, x, attention):
@@ -173,17 +227,38 @@ class Pipeline:
         ax.scatter(tmp[0], tmp[1], tmp[2], c='b')
         plt.savefig(os.path.join(path, self.id_art))
 
-    def _save_eval(self, x, gt, errors):
+    def _save_pred_vs_gt_per_face(self, input, x, list_transform, gt, list_transform_gt):
+        path = os.path.join("self.path_products", 'Eval')
+        if not os.path.exists(path):
+            os.mkdir(path)
+        size = int(np.sqrt(len(input[1]))) + 1
+        nb_line = size - 1 if (len(input[1]) <= size * size - size) else size
+        fig, axs = plt.subplots(nb_line, size, figsize=(25, 25), squeeze=False)
+        id = 0
+        for data, transform, transform_gt in zip(input[1], list_transform, list_transform_gt):
+            img = data[1]
+            axs[id // size, id % size].imshow(img)
+            tmp = self._revert_normalize_position(x, transform[0], transform[1], transform[2])
+            cloud = tmp[:, :2]
+            axs[id // size, id % size].scatter(cloud[:, 0], cloud[:, 1], c="c", s=10)
+            tmp = self._revert_normalize_position(gt, transform_gt[0], transform_gt[1], transform_gt[2], True)
+            cloud = tmp[:, :2]
+            axs[id // size, id % size].scatter(cloud[:, 0], cloud[:, 1], c="r", s=10)
+            id = id + 1
+        plt.savefig(os.path.join(path, self.id_art + "_2D_cyan_pred_VS_red_gt"))
+
+    def _save_eval(self, input, x, list_transform, gt, list_transform_gt, errors):
         path = os.path.join(self.path_products, 'Eval')
         if not os.path.exists(path):
             os.mkdir(path)
         fig = plt.figure()
         ax = Axes3D(fig)
         tmp = x.T
-        ax.scatter(tmp[0], tmp[1], tmp[2], c='b')
+        ax.scatter(tmp[0], tmp[1], tmp[2], c='c')
         tmp = gt.T
-        ax.scatter(tmp[0], tmp[1], tmp[2], c='r')
-        plt.savefig(os.path.join(path, self.id_art + "_blue_pred_VS_red_gt"))
+        ax.scatter(tmp[0], tmp[1], tmp[2], c='red')
+        plt.savefig(os.path.join(path, self.id_art + "_3D_cyan_pred_VS_red_gt"))
+        self._save_pred_vs_gt_per_face(input, x, list_transform, gt, list_transform_gt)
         fig, ax = plt.subplots()
         categories = ['all', 'jaw_line', 'mouth', 'nose', 'right_eye', 'right_eyebrow', 'left_eye', 'left_eyebrow']
         categorized_error = [np.sum(errors), np.sum(errors[:17]), np.sum(errors[48:]), np.sum(errors[27:36]),
@@ -237,13 +312,21 @@ if __name__ == '__main__':
     conf = Config('conf.json')
     ds = BuddhaDataset(conf)
     ds.load()
+    ds.artifacts[0].print_gt()
     train_ds, test_ds, eval_ds = ds.get_datasets()
     train_data, train_label = train_ds
+    test_data, test_label = test_ds
     eval_data, eval_label = eval_ds
     model = Pipeline(conf)
     if conf.train:
-        for data in train_data:
-            out = model.predict(data)
+        print("INFO: Starting train routine...")
+        for data, label in zip(train_data[:1], train_label[:1]):
+            network_error = model._get_network_error(data, label)
     if conf.eval:
+        print("INFO: Starting eval routine...")
         for data, label in zip(eval_data, eval_label):
+            error = model.eval(data, label)
+    if conf.test:
+        print("INFO: Starting test routine...")
+        for data, label in zip(test_data, test_label):
             error = model.eval(data, label)

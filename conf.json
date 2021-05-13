@@ -1,11 +1,13 @@
 {"remove_singleton": true,
   "ds_path": "data",
-  "split_test_eval": [0.15, 0.15],
+  "split_test_eval": [0.15, 0.01],
+  "expand_crop_region": 0.1,
   "save_intermediate": false,
   "save_predict": false,
   "save_eval": false,
+  "save_net_error": true,
   "path_products": "logs/pipeline",
-  "reset_ds": true,
-  "eval": false,
+  "reset_ds": false,
+  "eval": true,
   "train": false,
-  "test":  false}
+  "test": false}
