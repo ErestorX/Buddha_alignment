@@ -1,3 +1,4 @@
+import json
 import os
 import yaml
 import shutil
@@ -32,6 +33,7 @@ class Pipeline:
         list_transform = []
         for image in input[1]:
             self.id_img = image[0].split(".")[0]
+            print("Predicting image", self.id_img)
             x = self._get_landmarks(image[1])
             attention = self._get_attention(x)
             transform, x = self._normalize_position(x)
@@ -40,7 +42,6 @@ class Pipeline:
             list_transform.append(transform)
         list_x = np.asarray(list_x)
         x = self._get_consensus(list_x)
-        self.id_art, self.id_img = None, None
         return list_transform, x
 
     def eval(self, input, label):
@@ -48,12 +49,13 @@ class Pipeline:
         if self.save_intermediate:
             revert_save_policy = True
             self.save_intermediate = False
-        list_transform, x = self.predict(input)
         self.id_art, gt, list_transform_gt = label
-        transform, gt = self._normalize_position(gt)
+        print("Evaluating artifact", self.id_art)
+        list_transform, x = self.predict(input)
+        transform_gt_norm, gt = self._normalize_position(gt)
         errors = [np.linalg.norm(pt_gt - pt_x) for pt_x, pt_gt in zip(x, gt)]
         if self.save_eval:
-            self._save_eval(input, x, list_transform, gt,list_transform_gt, errors)
+            self._save_eval(input, x, list_transform, gt, transform_gt_norm, list_transform_gt, errors)
         if revert_save_policy:
             self.save_intermediate = True
         return errors
@@ -72,22 +74,22 @@ class Pipeline:
         assert input.ndim == 2
         _x = input - np.mean(input, axis=0)
         x = (_x / (2 * _x.max())) + .5
-        triangles = [[0, 1, 36], [1, 36, 48], [1, 2, 48], [2, 3, 48], [3, 4, 48], [4, 48, 60], [4, 5, 60], [5, 59, 60],
+        triangles = [[0, 1, 36], [1, 48, 36], [1, 2, 48], [2, 3, 48], [3, 4, 48], [4, 60, 48], [4, 5, 60], [5, 59, 60],
                      [5, 6, 59], [6, 58, 59], [6, 7, 58], [7, 57, 58], [7, 8, 57], [8, 9, 57], [9, 56, 57], [9, 10, 56],
-                     [10, 55, 56], [10, 11, 55], [11, 64, 55], [11, 12, 64], [12, 54, 64], [12, 13, 54], [13, 14, 54],
+                     [10, 55, 56], [10, 11, 55], [11, 64, 55], [11, 12, 64], [12, 64, 54], [12, 13, 54], [13, 14, 54],
                      [14, 15, 54], [15, 45, 54], [15, 16, 45], [16, 26, 45], [26, 25, 45], [25, 44, 45], [25, 24, 44],
-                     [24, 43, 44], [23, 24, 43], [23, 42, 43], [22, 23, 42], [21, 22, 23], [20, 21, 23], [20, 21, 39],
-                     [20, 38, 39], [19, 20, 38], [19, 37, 38], [18, 19, 37], [18, 36, 37], [17, 18, 36], [0, 17, 36],
-                     [36, 37, 41], [36, 40, 41], [40, 37, 38], [38, 39, 40], [42, 43, 47], [43, 44, 47], [44, 46, 47],
-                     [44, 45, 46], [21, 27, 39], [27, 28, 39], [28, 29, 39], [29, 31, 39], [39, 40, 31], [40, 41, 31],
-                     [31, 36, 41], [31, 36, 48], [21, 22, 27], [22, 27, 42], [27, 28, 42], [28, 29, 42], [29, 35, 42],
-                     [35, 42, 47], [35, 46, 47], [35, 45, 46], [35, 45, 54], [29, 30, 31], [30, 31, 32], [30, 32, 33],
-                     [30, 33, 34], [30, 34, 35], [29, 30, 35], [31, 48, 49], [31, 49, 50], [31, 32, 50], [32, 33, 50],
-                     [33, 50, 51], [33, 51, 52], [33, 34, 52], [34, 35, 52], [35, 52, 53], [35, 53, 54], [48, 49, 60],
-                     [49, 50, 61], [50, 51, 61], [51, 61, 62], [51, 62, 63], [51, 52, 63], [52, 53, 63], [53, 54, 64],
-                     [49, 59, 60], [49, 59, 61], [49, 61, 67], [61, 62, 67], [62, 66, 67], [62, 65, 66], [62, 63, 65],
-                     [55, 63, 65], [53, 55, 65], [53, 55, 64], [58, 59, 67], [58, 66, 67], [57, 58, 66], [56, 57, 66],
-                     [56, 65, 66], [55, 56, 65]]
+                     [24, 43, 44], [23, 43, 24], [23, 42, 43], [22, 42, 23], [21, 22, 23], [20, 21, 23], [20, 39, 21],
+                     [20, 38, 39], [19, 38, 20], [19, 37, 38], [18, 37, 19], [18, 36, 37], [17, 36, 18], [0, 36, 17],
+                     [36, 41, 37], [36, 41, 40], [40, 38, 37], [38, 40, 39], [42, 47, 43], [43, 47, 44], [44, 47, 46],
+                     [44, 46, 45], [21, 39, 27], [27, 39, 28], [28, 39, 29], [29, 39, 31], [39, 40, 31], [40, 41, 31],
+                     [31, 41, 36], [31, 36, 48], [21, 27, 22], [22, 27, 42], [27, 28, 42], [28, 29, 42], [29, 35, 42],
+                     [35, 47, 42], [35, 46, 47], [35, 45, 46], [35, 54, 45], [29, 31, 30], [30, 31, 32], [30, 32, 33],
+                     [30, 33, 34], [30, 34, 35], [29, 30, 35], [31, 48, 49], [31, 49, 50], [31, 50, 32], [32, 50, 33],
+                     [33, 50, 51], [33, 51, 52], [33, 52, 34], [34, 52, 35], [35, 52, 53], [35, 53, 54], [48, 60, 49],
+                     [49, 61, 50], [50, 61, 51], [51, 61, 62], [51, 62, 63], [51, 63, 52], [52, 63, 53], [53, 64, 54],
+                     [49, 60, 59], [49, 59, 61], [49, 67, 61], [61, 67, 62], [62, 67, 66], [62, 66, 65], [62, 65, 63],
+                     [55, 63, 65], [53, 65, 55], [53, 55, 64], [58, 67, 59], [58, 66, 67], [57, 66, 58], [56, 66, 57],
+                     [56, 65, 66], [55, 65, 56]]
         triangles = [x[triangle] for triangle in np.asarray(triangles)]
         attention = self._are_visible(x, triangles)
         if self.save_intermediate:
@@ -97,10 +99,10 @@ class Pipeline:
     def _normalize_position(self, input):
         assert input.ndim == 2
         # empirical estimation of the length and oriented shape of the standard alignment
-        length = np.linalg.norm(input[0] - input[16])
-        A = np.asarray([[0, 0, 0], [length, 0, 0], [length / 2, length / 6, length / 3]])
-        B = np.asarray([input[0], input[16], input[33]])
-        trans = get_transform(A, B)
+        with open("./std_model.json") as f:
+            data = json.load(f)
+            std_model = np.asarray(data["std_model"])
+        trans = get_transform(std_model, input)
         tmp = np.asarray(input.T.tolist() + [list([1] * 68)])
         x = (tmp.T @ trans).T[:3].T
         _mean = np.mean(x, axis=0)
@@ -111,13 +113,13 @@ class Pipeline:
         if self.save_intermediate:
             self._save_normalize_position(x)
         return [trans, _mean, _max], x
-    
+
     def _revert_normalize_position(self, input, trans, _mean, _max, gt=False):
         if gt:
             x = input
             x = np.asarray(x.T.tolist() + [list([1] * 68)])
             x = (x.T @ np.linalg.inv(trans))
-            return ((x[:, :3]) * _max/2) + _mean
+            return ((x[:, :3]) * _max / 2) + _mean
         else:
             x = ((input - .5) * 2 * _max) + _mean
             x = np.asarray(x.T.tolist() + [list([1] * 68)])
@@ -133,7 +135,7 @@ class Pipeline:
 
     def _get_consensus(self, input):
         assert input.ndim == 3
-        x = np.zeros((68,3))
+        x = np.zeros((68, 3))
         for i in range(68):
             values = input[:, i, :-1]
             weights = input[:, i, -1]
@@ -227,8 +229,8 @@ class Pipeline:
         ax.scatter(tmp[0], tmp[1], tmp[2], c='b')
         plt.savefig(os.path.join(path, self.id_art))
 
-    def _save_pred_vs_gt_per_face(self, input, x, list_transform, gt, list_transform_gt):
-        path = os.path.join("self.path_products", 'Eval')
+    def _save_pred_vs_gt_per_face(self, input, x, list_transform, gt, transform_gt_norm, list_transform_gt):
+        path = os.path.join(self.path_products, 'Eval')
         if not os.path.exists(path):
             os.mkdir(path)
         size = int(np.sqrt(len(input[1]))) + 1
@@ -241,13 +243,14 @@ class Pipeline:
             tmp = self._revert_normalize_position(x, transform[0], transform[1], transform[2])
             cloud = tmp[:, :2]
             axs[id // size, id % size].scatter(cloud[:, 0], cloud[:, 1], c="c", s=10)
-            tmp = self._revert_normalize_position(gt, transform_gt[0], transform_gt[1], transform_gt[2], True)
+            tmp = self._revert_normalize_position(gt, transform_gt_norm[0], transform_gt_norm[1], transform_gt_norm[2])
+            tmp = self._revert_normalize_position(tmp, transform_gt[0], transform_gt[1], transform_gt[2], True)
             cloud = tmp[:, :2]
             axs[id // size, id % size].scatter(cloud[:, 0], cloud[:, 1], c="r", s=10)
             id = id + 1
         plt.savefig(os.path.join(path, self.id_art + "_2D_cyan_pred_VS_red_gt"))
 
-    def _save_eval(self, input, x, list_transform, gt, list_transform_gt, errors):
+    def _save_eval(self, input, x, list_transform, gt, transform_gt_norm, list_transform_gt, errors):
         path = os.path.join(self.path_products, 'Eval')
         if not os.path.exists(path):
             os.mkdir(path)
@@ -258,7 +261,7 @@ class Pipeline:
         tmp = gt.T
         ax.scatter(tmp[0], tmp[1], tmp[2], c='red')
         plt.savefig(os.path.join(path, self.id_art + "_3D_cyan_pred_VS_red_gt"))
-        self._save_pred_vs_gt_per_face(input, x, list_transform, gt, list_transform_gt)
+        self._save_pred_vs_gt_per_face(input, x, list_transform, gt, transform_gt_norm, list_transform_gt)
         fig, ax = plt.subplots()
         categories = ['all', 'jaw_line', 'mouth', 'nose', 'right_eye', 'right_eyebrow', 'left_eye', 'left_eyebrow']
         categorized_error = [np.sum(errors), np.sum(errors[:17]), np.sum(errors[48:]), np.sum(errors[27:36]),
@@ -266,9 +269,11 @@ class Pipeline:
         ax.bar(categories, categorized_error)
         plt.savefig(os.path.join(path, self.id_art + "_error_per_category"))
         fig, ax = plt.subplots()
-        data = [errors, errors[:17], errors[48:], errors[27:36], errors[36:42], errors[17:22], errors[42:48], errors[22:27]]
+        data = [errors, errors[:17], errors[48:], errors[27:36], errors[36:42], errors[17:22], errors[42:48],
+                errors[22:27]]
         ax.boxplot(data)
-        plt.xticks([1, 2, 3, 4, 5, 6, 7, 8], ['all', 'jaw_line', 'mouth', 'nose', 'right_eye', 'right_eyebrow', 'left_eye', 'left_eyebrow'])
+        plt.xticks([1, 2, 3, 4, 5, 6, 7, 8],
+                   ['all', 'jaw_line', 'mouth', 'nose', 'right_eye', 'right_eyebrow', 'left_eye', 'left_eyebrow'])
         plt.savefig(os.path.join(path, self.id_art + "_error_dispersion"))
 
     def _are_visible(self, list_x, triangles):
@@ -286,7 +291,7 @@ class Pipeline:
                     result.append([0.1])
                     break
             if visible:
-                result.append([1])
+                result.append([self._not_back_facing(x, triangles)])
         return np.asarray(result)
 
     def _intersect(self, x, triangle):
@@ -305,14 +310,22 @@ class Pipeline:
         sub_1 = 0.5 * np.linalg.norm(np.cross(triangle[2] - pt, triangle[0] - pt))
         sub_2 = 0.5 * np.linalg.norm(np.cross(triangle[0] - pt, triangle[1] - pt))
         x = np.abs(area - np.sum([sub_0, sub_1, sub_2]))
-        return True if x < 1e-3 else False
+        return x < 1e-3
+
+    def _not_back_facing(self, x, triangles):
+        list_triangles = [triangle for triangle in triangles if x in triangle]
+        for triangle in list_triangles:
+            norm = np.cross(triangle[1] - triangle[0], triangle[2] - triangle[0])
+            angle = 180 * np.arccos(norm[-1] / np.linalg.norm(norm)) / np.pi
+            if angle > 90:
+                return 1
+        return 0.1
 
 
 if __name__ == '__main__':
     conf = Config('conf.json')
     ds = BuddhaDataset(conf)
     ds.load()
-    ds.artifacts[0].print_gt()
     train_ds, test_ds, eval_ds = ds.get_datasets()
     train_data, train_label = train_ds
     test_data, test_label = test_ds
@@ -320,12 +333,15 @@ if __name__ == '__main__':
     model = Pipeline(conf)
     if conf.train:
         print("INFO: Starting train routine...")
-        for data, label in zip(train_data[:1], train_label[:1]):
+        for data, label in zip(eval_data, eval_label):
             network_error = model._get_network_error(data, label)
     if conf.eval:
         print("INFO: Starting eval routine...")
+        errors = []
         for data, label in zip(eval_data, eval_label):
-            error = model.eval(data, label)
+            errors.append(model.eval(data, label))
+        with open("./errors.json", "w") as f:
+            json.dump(errors, f)
     if conf.test:
         print("INFO: Starting test routine...")
         for data, label in zip(test_data, test_label):

@@ -81,7 +81,8 @@ class TDDFA_ONNX(object):
                 raise ValueError(f'Unknown crop policy {crop_policy}')
 
             roi_box_lst.append(roi_box)
-            img = crop_img(img_ori, roi_box)
+            # img = crop_img(img_ori, roi_box)
+            img = img_ori
             img = cv2.resize(img, dsize=(self.size, self.size), interpolation=cv2.INTER_LINEAR)
             img = img.astype(np.float32).transpose(2, 0, 1)[np.newaxis, ...]
             img = (img - 127.5) / 128.

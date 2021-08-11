@@ -93,10 +93,11 @@ class Artifact:
 class Image:
     def __init__(self, path2img, file_key, artifact_data):
         self.id = path2img.split("/")[-1]
-        self.data = cv2.imread(path2img)
+        self.data = cv2.cvtColor(cv2.imread(path2img), cv2.COLOR_BGR2RGB)
         pred, self.mean, self.max, self.bbox = artifact_data['norm_preds_dict'][file_key]
         pred, self.mean, self.bbox = np.asarray(pred), np.asarray(self.mean), np.asarray(self.bbox)
         self.transformation = get_transform(np.asarray(artifact_data['avg_model']), pred)
+        self.pred = (pred * self.max) + self.mean
         self.precomputed_gt = ldk_on_im(
             np.asarray(artifact_data['avg_model']) + np.asarray(artifact_data['hand_updates']), self.transformation,
             self.mean, self.max, True)
