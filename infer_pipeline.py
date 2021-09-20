@@ -4,6 +4,7 @@ import yaml
 import shutil
 import numpy as np
 import matplotlib.pyplot as plt
+from multiprocessing import Pool
 from TDDFA_ONNX import TDDFA_ONNX
 import matplotlib.patches as patches
 from mpl_toolkits.mplot3d import Axes3D
@@ -276,50 +277,38 @@ class Pipeline:
                    ['all', 'jaw_line', 'mouth', 'nose', 'right_eye', 'right_eyebrow', 'left_eye', 'left_eyebrow'])
         plt.savefig(os.path.join(path, self.id_art + "_error_dispersion"))
 
-    def _are_visible(self, list_x, triangles):
-        result = []
-        for x in list_x:
-            visible = True
-            for triangle in triangles:
-                if x in triangle:
-                    continue
-                pt = self._intersect(x, triangle)
-                if x[2] > pt[2]:
-                    continue
-                if self._is_within(pt, triangle):
-                    visible = False
-                    result.append([0.1])
-                    break
-            if visible:
-                result.append([self._not_back_facing(x, triangles)])
-        return np.asarray(result)
-
-    def _intersect(self, x, triangle):
-        planePoint = triangle[0]
-        planeNormal = np.cross(triangle[1] - triangle[0], triangle[2] - triangle[0])
-        rayPoint = x
-        rayDirection = np.array([0, 0, 1])
-        ndotu = planeNormal.dot(rayDirection)
-        w = rayPoint - planePoint
-        si = -planeNormal.dot(w) / ndotu
-        return w + si * rayDirection + planePoint
-
-    def _is_within(self, pt, triangle):
-        area = 0.5 * np.linalg.norm(np.cross(triangle[1] - triangle[0], triangle[2] - triangle[0]))
-        sub_0 = 0.5 * np.linalg.norm(np.cross(triangle[1] - pt, triangle[2] - pt))
-        sub_1 = 0.5 * np.linalg.norm(np.cross(triangle[2] - pt, triangle[0] - pt))
-        sub_2 = 0.5 * np.linalg.norm(np.cross(triangle[0] - pt, triangle[1] - pt))
-        x = np.abs(area - np.sum([sub_0, sub_1, sub_2]))
-        return x < 1e-3
-
-    def _not_back_facing(self, x, triangles):
-        list_triangles = [triangle for triangle in triangles if x in triangle]
-        for triangle in list_triangles:
+    def _is_visible(self, is_visible_args):
+        point, triangles = is_visible_args
+        triangles_with_point, triangles_without_point = [], []
+        for tmp in triangles:
+            if point in tmp:
+                triangles_with_point.append(tmp)
+            else:
+                triangles_without_point.append(tmp)
+        # find one obscuring triangle in the mesh
+        for triangle in triangles_without_point:
+            # get orthogonal projection of point on the triangle plane
+            plane_norm = np.cross(triangle[1] - triangle[0], triangle[2] - triangle[0])
+            ndotu = plane_norm.dot(np.array([0, 0, 1]))
+            w = point - triangle[0]
+            pt_on_tri = w + (-plane_norm.dot(w) / ndotu) * np.array([0, 0, 1]) + triangle[0]
+            if point[2] > pt_on_tri[2]:
+                continue
+            # find if the projected point is within the triangle perimeter
+            area = np.linalg.norm(np.cross(triangle[1] - triangle[0], triangle[2] - triangle[0]))
+            area_0 = np.linalg.norm(np.cross(triangle[1] - pt_on_tri, triangle[2] - pt_on_tri))
+            area_1 = np.linalg.norm(np.cross(triangle[2] - pt_on_tri, triangle[0] - pt_on_tri))
+            area_2 = np.linalg.norm(np.cross(triangle[0] - pt_on_tri, triangle[1] - pt_on_tri))
+            area_diff = np.abs(area - np.sum([area_0, area_1, area_2]))
+            # if the sum of areas of the small triangles is different from the original area, with depth approx.
+            if area_diff < 1e-3:
+                return [.1]
+        # find at least one non-back-facing triangle
+        for triangle in triangles_with_point:
             norm = np.cross(triangle[1] - triangle[0], triangle[2] - triangle[0])
-            angle = 180 * np.arccos(norm[-1] / np.linalg.norm(norm)) / np.pi
-            if angle > 90:
-                return 1
-        return 0.1
+            if np.arccos(norm[-1] / np.linalg.norm(norm)) > np.pi / 2:
+                return [1]
+        return [.1]
 
 
 if __name__ == '__main__':
