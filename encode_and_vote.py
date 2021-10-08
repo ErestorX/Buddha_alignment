@@ -35,11 +35,10 @@ class ConsensusNet(torch.nn.Module):
             if list_encoding is None:
                 list_encoding = torch.unsqueeze(self.encoder(x), 0)
             else:
-                print(list_encoding)
-                list_encoding = torch.cat((list_encoding, self.encoder(x)), 0)
-        print(list_encoding)
-        encoding = torch.tensor(np.asarray(list_encoding), dtype=torch.float)
-        pool = F.max_pool2d(encoding, kernel_size=[len(encoding), 1])
+                list_encoding = torch.cat((list_encoding, torch.unsqueeze(self.encoder(x), 0)), 0)
+        list_encoding = torch.unsqueeze(list_encoding, 0)
+        pool = F.max_pool2d(list_encoding, kernel_size=[list_encoding.shape[1], 1])
+        pool = torch.squeeze(pool)
         vote = self.voter(pool)
         return vote.reshape([68, 3])
 
