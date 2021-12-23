@@ -59,7 +59,7 @@ def evaluate_buddha():
             print("Error on image", picture.split(".")[0], "=", "{:.2f}".format(np.sum(errors_pict)))
         error_ds.append(np.sum(errors_artifact))
         print("Error on", artifact_id, "=", "{:.2f}".format(np.sum(errors_artifact)))
-    print("Error on dataset =", "{:.2f}".format(np.sum(error_ds)))
+    print("Error on dataset_old =", "{:.2f}".format(np.sum(error_ds)))
 
 
 def evaluate_Blender():

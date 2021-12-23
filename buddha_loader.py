@@ -65,7 +65,7 @@ def crop_pict(data, bbox, projection):
 
 
 def write_ds(ds_path):
-    print("INFO: Re generating the dataset")
+    print("INFO: Re generating the dataset_old")
     artifact_json = [name for name in os.listdir(ds_path) if os.path.isfile(os.path.join(ds_path, name))]
     annotated_id = [name.split('.')[0] for name in artifact_json]
     ds = dict.fromkeys(annotated_id)

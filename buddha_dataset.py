@@ -87,7 +87,7 @@ class Artifact:
                 im, cloud = pict.get_im_and_cloud()
                 ax[id // size, id % size].imshow(im)
                 ax[id // size, id % size].scatter(cloud[:, 0], cloud[:, 1], c="red", s=10)
-            plt.savefig("/home/hlemarchant/buddha_allign_report/" + self.id + "_visu_gt")
+            plt.savefig("/home/hlemarchant/crash/" + self.id + "_visu_gt")
 
 
 class Image:
@@ -150,7 +150,7 @@ class BuddhaDataset:
         return np.asarray(train_ds), np.asarray(test_ds), np.asarray(eval_ds)
 
     def write_ds(self, ds_path):
-        print("INFO: Generating the dataset")
+        print("INFO: Generating the dataset_old")
         if os.path.exists(self.pickle_ds_name):
             os.remove(self.pickle_ds_name)
         artifact_json = [name for name in os.listdir(ds_path) if os.path.isfile(os.path.join(ds_path, name))]
@@ -201,3 +201,4 @@ if __name__ == '__main__':
     ds = BuddhaDataset(Config('conf.json'))
     ds.load()
     ds.get_datasets()
+    print(len([art for art in ds.artifacts if art ]))

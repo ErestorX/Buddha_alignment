@@ -110,7 +110,7 @@ def print_cloud_pt(art):
 
 def load_basic(path, test_fold, nb_augment=5):
     """
-    create dataset in shape [train, test], with train and test being [inputs, labels], inputs being
+    create dataset_old in shape [train, test], with train and test being [inputs, labels], inputs being
     [art_id, [img_id, img]] and labels being [3d_model, [2d_model]].
     :param nb_augment:
     :param path:
@@ -126,6 +126,8 @@ def load_basic(path, test_fold, nb_augment=5):
             fold_gt = json.load(file)
         fold_ds = []
         for art_id in data[fold]:
+            if len(os.listdir(fold_path + '/' + art_id + '_aug0')) == 0:
+                continue
             tmp_nb_augment = 1 if fold == test_fold else nb_augment
             for i in range(tmp_nb_augment):
                 artifact = {'art_id': art_id + '_aug' + str(i),
@@ -148,7 +150,7 @@ def load_basic(path, test_fold, nb_augment=5):
 
 def load_preprocessed(path, test_fold, nb_augment=5):
     """
-    create dataset in shape [train, test], with train and test being [inputs, labels], inputs being
+    create dataset_old in shape [train, test], with train and test being [inputs, labels], inputs being
     [art_id, [img_id, 3d_pred]] and labels being [3d_model, [2d_model]].
     :param nb_augment:
     :param test_fold:
@@ -166,6 +168,8 @@ def load_preprocessed(path, test_fold, nb_augment=5):
             preprocessed_input = json.load(file)
         fold_ds = []
         for art_id in data[fold]:
+            if len(os.listdir(fold_path + '/' + art_id + '_aug0')) == 0:
+                continue
             tmp_nb_augment = 1 if fold == test_fold else nb_augment
             for i in range(tmp_nb_augment):
                 artifact = {'art_id': art_id + '_aug' + str(i),
@@ -201,19 +205,19 @@ def process_3d_pred(artifact, covariance=None, raw_art=None):
         # _mean = np.mean(x, axis=0)
         # _x = x - _mean
         # _max = _x.max()
-        # x = (_x / (2 * _max)) + .5
-        # transformation = [trans.tolist(), _mean.tolist(), _max]
+        # old_x = (_x / (2 * _max)) + .5
+        # old_trans = [trans.tolist(), _mean.tolist(), _max]
         transformation = umeyama(ldk, std_model)
         x = ldk.dot(transformation[0] * transformation[1]) + transformation[2]
         # fig = plt.figure()
         # ax = fig.add_subplot(111, projection='3d')
         # ax.scatter(x[:, 0], x[:, 1], x[:, 2], c='r')
-        # ax.scatter(new_x[:, 0], new_x[:, 1], new_x[:, 2], c='b')
-        # ax.set_title('red prev, blue new, error ' + str(((x - new_x) ** 2).sum()))
-        # plt.savefig('./logs/visu_norm_methods/'+artifact['art_id'] + '_' + image['img_id'])
+        # ax.scatter(old_x[:, 0], old_x[:, 1], old_x[:, 2], c='b')
+        # ax.set_title('red umeyama, blue old, error ' + str(((x - old_x) ** 2).sum()))
+        # plt.savefig('/home/hlemarchant/crash/'+artifact['art_id'] + '_' + image['img_id'])
         image['img_rot'] = transformation
         image['img_ldk_std'] = x
-        image['img_ldk_vis'] = get_visible_landmarks(np.asarray(image['img_ldk']))
+        # image['img_ldk_vis'] = get_visible_landmarks(np.asarray(image['img_ldk']))
         if raw_art is not None:
             image['img_cv2'] = raw_art['imgs'][image_index]['img_cv2']
 
@@ -266,31 +270,33 @@ def process_3d_pred(artifact, covariance=None, raw_art=None):
 
 def print_valid(ds_img, ds_preprocessed):
     path = 'logs/visu_3DDFA/'
+    print_lim = 10
     ds_train, ds_test = ds_img
     ds_preprocessed_train, ds_preprocessed_test = ds_preprocessed
     for art_img, art_processed in zip(ds_train, ds_preprocessed_train):
+        if print_lim == 0:
+            break
+        print_lim = print_lim - 1
         images = art_img['imgs']
         landmarks = art_processed['imgs']
         for img, ldk in zip(images, landmarks):
             fig, ax = plt.subplots()
-            ax.imshow(img['img'])
+            ax.imshow(img['img_cv2'])
             points = np.asarray(ldk['img_ldk'])
             ax.scatter(points[:, 0], points[:, 1], c="r", s=15)
             points = img['img_gt']
             ax.scatter(points[:, 0], points[:, 1], c="b", s=15)
-            plt.savefig(os.path.join(path, art_img['art_id'] + '_' + img['img_id']))
+            plt.savefig(os.path.join(path, "larger_" + art_img['art_id'] + '_' + img['img_id']))
             plt.close(fig)
-        break
 
 
 if __name__ == '__main__':
-    path = './dataset'
-    ds = load_basic(path, 'fold_1')
-    ds_preprocessed = load_preprocessed(path, 'fold_1')
+    path = 'dataset_0_aug'
+    ds = load_basic(path, 'fold_1', nb_augment=1)
+    ds_preprocessed = load_preprocessed(path, 'fold_1', nb_augment=1)
     # ds_preprocessed[train/test][artifact]
     # artifact{'art_id': str, 'art_gt': np.array, 'imgs': list[image]}
     # image{'img_id': str, 'img_gt': np.array, 'img_ldk': np.array}
-    # for artifact_index in range(len(ds_preprocessed[0])):
     start = time.time()
     for artifact_index in range(len(ds_preprocessed[0])):
         if artifact_index % 100 == 0:
@@ -308,7 +314,7 @@ if __name__ == '__main__':
         # covariance in ['full', 'dimension', 'point', None]
         ds_preprocessed[1][artifact_index] = process_3d_pred(ds_preprocessed[1][artifact_index], covariance=None,
                                                              raw_art=ds[1][artifact_index])
-    with open('ds_full.pkl', 'wb') as file:
+    with open('ds_0_aug.pkl', 'wb') as file:
         pickle.dump(ds_preprocessed, file)
     # print_cloud_pt(prep_art)
-    # print_valid(ds, ds_preprocessed)
+    print_valid(ds, ds_preprocessed)

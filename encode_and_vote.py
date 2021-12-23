@@ -103,9 +103,8 @@ def train(model, dataset, epochs):
         torch.save(model, 'models/encode_and_vote/model_epoch_' + str(epoch + 1) + '.pth')
 
 
-with open('ds_full.pkl', 'rb') as f:
+with open('ds_full_old.pkl', 'rb') as f:
     ds = pickle.load(f)
 ds_train, test_val = ds
 model = ConsensusNet()
-new_ds_train = [i for i in ds_train if len(i['imgs']) != 0]
-train(model, new_ds_train, 2)
+train(model, ds_train, 2)
