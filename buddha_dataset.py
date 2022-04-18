@@ -87,7 +87,8 @@ class Artifact:
                 im, cloud = pict.get_im_and_cloud()
                 ax[id // size, id % size].imshow(im)
                 ax[id // size, id % size].scatter(cloud[:, 0], cloud[:, 1], c="red", s=10)
-            plt.savefig("/home/hlemarchant/crash/" + self.id + "_visu_gt")
+            plt.savefig("output/dataset_visu/art_" + self.id + "_visu_gt")
+            plt.close()
 
 
 class Image:

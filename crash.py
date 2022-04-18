@@ -556,15 +556,60 @@ if __name__ == '__main__':
     os.environ['KMP_DUPLICATE_LIB_OK'] = 'True'
     os.environ['OMP_NUM_THREADS'] = '4'
     tddfa = TDDFA(**cfg)
-    # print(tddfa.model)
-    print(tddfa.bfm)
+
     # fa = face_alignment.FaceAlignment(face_alignment.LandmarksType._3D, flip_input=False)
     # print(fa.face_alignment_net, fa.depth_prediciton_net)
-    # from generate_dataset import BuddhaDataset, Config, Artifact, Image
-    # original_ds = BuddhaDataset(Config('conf.json'))
-    # original_ds.load()
-    # original_ds = original_ds.artifacts
-    # try_original_ds(original_ds)
+    from generate_dataset import BuddhaDataset, Config, Artifact, Image
+    original_ds = BuddhaDataset(Config('conf.json'))
+    original_ds.load()
+    original_ds = original_ds.artifacts
+    # try_original_ds(original_ds[:10])
+    images, cropped_images, gt, cropped_gt, bbox = [], [], [], [], []
+    for artifact in original_ds[:100]:
+        images.append([img.data for img in artifact.pictures])
+        cropped_images.append([img.cropped_data for img in artifact.pictures])
+        gt.append([img.precomputed_gt for img in artifact.pictures])
+        cropped_gt.append([img.cropped_gt for img in artifact.pictures])
+        bbox.append([img.bbox for img in artifact.pictures])
+    art_i = 0
+    for art_im, art_crop_im, art_gt, art_crop_gt, art_bbox in zip(images, cropped_images, gt, cropped_gt, bbox):
+        art_path = 'output/3d_visu/art_{}'.format(art_i)
+        if not os.path.exists(art_path):
+            os.mkdir(art_path)
+        im_i = 0
+        for im, crop_im, y, crop_y, bbox in zip(art_im, art_crop_im, art_gt, art_crop_gt, art_bbox):
+            param_lst, roi_box_lst = tddfa(im, [bbox])
+            pred = tddfa.recon_vers(param_lst, roi_box_lst, dense_flag=False)
+            pred = pred[0]
+            fig = plt.figure()
+            ax_3d = fig.add_subplot(1, 2, 1, projection='3d')
+            ax_2d = fig.add_subplot(1, 2, 2)
+            X, Y, Z = y.swapaxes(1, 0)
+            ax_3d.scatter(X, Y, Z, c='b', s=5)
+            ax_2d.scatter(X, Y, c='b', s=5)
+            X, Y, Z = pred
+            ax_3d.scatter(X, Y, Z, c='r', s=5)
+            ax_2d.scatter(X, Y, c='r', s=5)
+            plt.savefig(art_path + '/' + str(im_i) + '_gt_blue_pred_red.png')
+            plt.close()
+            fig = plt.figure()
+            param_lst, roi_box_lst = tddfa(crop_im, [[0, 0, im.shape[0], im.shape[1]]])
+            crop_pred = tddfa.recon_vers(param_lst, roi_box_lst, dense_flag=False)
+            crop_pred = crop_pred[0]
+            ax_3d = fig.add_subplot(1, 2, 1, projection='3d')
+            ax_2d = fig.add_subplot(1, 2, 2)
+            X, Y, Z = crop_y.swapaxes(1, 0)
+            ax_3d.scatter(X, Y, Z, c='b', s=5)
+            ax_2d.scatter(X, Y, c='b', s=5)
+            X, Y, Z = crop_pred
+            ax_3d.scatter(X, Y, Z, c='r', s=5)
+            ax_2d.scatter(X, Y, c='r', s=5)
+            plt.savefig(art_path + '/' + str(im_i) + '_gt_blue_pred_red_cropped.png')
+            plt.close()
+            plt.imsave(art_path + '/' + str(im_i) + '_photo.png', im)
+            im_i += 1
+        art_i += 1
+
     #
     # with open('ds_0_aug.pkl', 'rb') as f:
     #     # pickle dump generated in dataloader.py

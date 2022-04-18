@@ -26,7 +26,7 @@ import torchvision.utils
 from torch.utils.tensorboard import SummaryWriter
 from torch.nn.parallel import DistributedDataParallel as NativeDDP
 
-from TDDFA import TDDFA
+from to_train_TDDFA import TDDFA
 from torch.utils.data import DataLoader, TensorDataset
 import cv2
 import numpy as np
@@ -84,7 +84,7 @@ parser.add_argument('--model', default='mb1_120x120', type=str, metavar='MODEL',
                     help='Name of model to train (default: "mb1_120x120"')
 parser.add_argument('--gp', default=None, type=str, metavar='POOL',
                     help='Global pool type, one of (fast, avg, max, avgmax, avgmaxc). Model default if None.')
-parser.add_argument('-b', '--batch-size', type=int, default=1, metavar='N',
+parser.add_argument('-b', '--batch-size', type=int, default=128, metavar='N',
                     help='input batch size for training (default: 128)')
 
 # Optimizer parameters
@@ -106,7 +106,7 @@ parser.add_argument('--clip-mode', type=str, default='norm',
 # Learning rate schedule parameters
 parser.add_argument('--sched', default='cosine', type=str, metavar='SCHEDULER',
                     help='LR scheduler (default: "step"')
-parser.add_argument('--lr', type=float, default=0.003, metavar='LR',
+parser.add_argument('--lr', type=float, default=0.0001, metavar='LR',
                     help='learning rate (default: 0.05)')
 parser.add_argument('--lr-noise', type=float, nargs='+', default=None, metavar='pct, pct',
                     help='learning rate noise on/off epoch percentages')
@@ -132,13 +132,13 @@ parser.add_argument('--epoch-repeats', type=float, default=0., metavar='N',
                     help='epoch repeat multiplier (number of times to repeat dataset epoch per train epoch).')
 parser.add_argument('--start-epoch', default=None, type=int, metavar='N',
                     help='manual epoch number (useful on restarts)')
-parser.add_argument('--decay-epochs', type=float, default=2, metavar='N',
+parser.add_argument('--decay-epochs', type=float, default=0, metavar='N',
                     help='epoch interval to decay LR')
-parser.add_argument('--warmup-epochs', type=int, default=15, metavar='N',
+parser.add_argument('--warmup-epochs', type=int, default=0, metavar='N',
                     help='epochs to warmup LR, if scheduler supports')
 parser.add_argument('--cooldown-epochs', type=int, default=0, metavar='N',
                     help='epochs to cooldown LR at min_lr, after cyclic schedule ends')
-parser.add_argument('--patience-epochs', type=int, default=10, metavar='N',
+parser.add_argument('--patience-epochs', type=int, default=0, metavar='N',
                     help='patience epochs for Plateau LR scheduler (default: 10')
 parser.add_argument('--decay-rate', '--dr', type=float, default=0.03, metavar='RATE',
                     help='LR decay rate (default: 0.1)')
@@ -182,11 +182,11 @@ parser.add_argument('--split-bn', action='store_true',
 # Misc
 parser.add_argument('--seed', type=int, default=42, metavar='S',
                     help='random seed (default: 42)')
-parser.add_argument('--log-interval', type=int, default=100, metavar='N',
+parser.add_argument('--log-interval', type=int, default=1000, metavar='N',
                     help='how many batches to wait before logging training status')
 parser.add_argument('--recovery-interval', type=int, default=0, metavar='N',
                     help='how many batches to wait before writing recovery checkpoint')
-parser.add_argument('--checkpoint-hist', type=int, default=10, metavar='N',
+parser.add_argument('--checkpoint-hist', type=int, default=3, metavar='N',
                     help='number of checkpoints to keep (default: 10)')
 parser.add_argument('-j', '--workers', type=int, default=6, metavar='N',
                     help='how many training processes to use (default: 4)')
@@ -328,25 +328,26 @@ def main():
     art_ds = BuddhaDataset(Config('conf.json'))
     art_ds.load()
     art_ds = art_ds.artifacts
-    inputs, targets = [], []
+    inputs, bboxs, targets = [], [], []
     for art in art_ds:
         for img in art.pictures:
-            inputs.append(np.asarray(img.cropped_data))
+            inputs.append(np.asarray(img.data))
             # inputs.append(cv2.resize(img.cropped_data, dsize=(120, 120), interpolation=cv2.INTER_LINEAR))
-            targets.append(np.asarray(img.cropped_gt))
-    inputs, targets = np.asarray(inputs), np.asarray(targets)
+            bboxs.append(np.asarray(img.bbox))
+            targets.append(np.asarray(img.precomputed_gt))
+    inputs, bboxs, targets = np.asarray(inputs), np.asarray(bboxs), np.asarray(targets)
     s = np.arange(0, len(inputs), 1)
     split = int(len(inputs) * 0.8)
-    inputs, targets = inputs[s], targets[s]
-    loader_train = [(x, y) for x, y in zip(inputs[:split], targets[:split])]
-    loader_eval = [(x, y) for x, y in zip(inputs[split:], targets[split:])]
+    inputs, bboxs, targets = inputs[s], bboxs[s], targets[s]
+    loader_train = [(x, bbox, y) for x, bbox, y in zip(inputs[:split], bboxs[:split], targets[:split])]
+    loader_eval = [(x, bbox, y) for x, bbox, y in zip(inputs[split:], bboxs[split:], targets[split:])]
     # dataset_train = TensorDataset(torch.from_numpy(inputs[:split]), torch.from_numpy(targets[:split]))
     # loader_train = DataLoader(dataset_train, batch_size=args.batch_size, shuffle=True, pin_memory=True)
     # dataset_eval = TensorDataset(torch.from_numpy(inputs[split:]), torch.from_numpy(targets[split:]))
     # loader_eval = DataLoader(dataset_eval, batch_size=args.batch_size, shuffle=True, pin_memory=True)
 
     class Loss(torch.nn.Module):
-        def __call__(self, pred, label, img_size):
+        def __call__(self, pred, label):
             distance = torch.norm(pred - label, dim=1)
             return torch.mean(distance)
 
@@ -424,19 +425,19 @@ def train_one_epoch(epoch, model, loader, optimizer, loss_fn, args,
     end = time.time()
     last_idx = len(loader) - 1
     num_updates = epoch * len(loader)
-    for batch_idx, (input, target) in enumerate(loader):
+    for batch_idx, (input, bbox, target) in enumerate(loader):
         last_batch = batch_idx == last_idx
         data_time_m.update(time.time() - end)
-        # input = input.to('cuda:0')
-        target = target.to('cuda:0')
+        # input = input.cuda()
+        target = torch.from_numpy(target).cuda()
 
         with amp_autocast():
-            param_lst, roi_box_lst = model(input, [[0, 0, 120, 120]])
-            output = model.recon_vers(param_lst, roi_box_lst, dense_flag=False)[0].T
+            param, roi_box = model(input, bbox)
+            output = model.recon_vers(param, roi_box)
             loss = loss_fn(output, target)
 
         if not args.distributed:
-            losses_m.update(loss.item(), input.size(0))
+            losses_m.update(loss.item(), len(input))
 
         optimizer.zero_grad()
         if loss_scaler is not None:
@@ -500,16 +501,16 @@ def validate(epoch, model, loader, loss_fn, args, amp_autocast=suppress, log_suf
     end = time.time()
     last_idx = len(loader) - 1
     with torch.no_grad():
-        for batch_idx, (input, target) in enumerate(loader):
+        for batch_idx, (input, bbox, target) in enumerate(loader):
             last_batch = batch_idx == last_idx
             # input = input.to('cuda:0')
-            target = target.to('cuda:0')
+            target = torch.from_numpy(target).cuda()
 
             with amp_autocast():
-                param_lst, roi_box_lst = model(input, [[0, 0, 120, 120]])
-                output = model.recon_vers(param_lst, roi_box_lst, dense_flag=False)[0].T
+                param, roi_box = model(input, bbox)
+                output = model.recon_vers(param, roi_box)
             if isinstance(output, (tuple, list)):
-                output = output[0]
+                output = output
 
             loss = loss_fn(output, target)
 
@@ -521,7 +522,7 @@ def validate(epoch, model, loader, loss_fn, args, amp_autocast=suppress, log_suf
 
             torch.cuda.synchronize()
 
-            losses_m.update(reduced_loss.item(), input.size(0))
+            losses_m.update(loss.item(), len(input))
 
             batch_time_m.update(time.time() - end)
             end = time.time()

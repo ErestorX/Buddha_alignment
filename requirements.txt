@@ -1,5 +1,7 @@
 torch
 torchvision
+torch-geometric
+torch-sparse
 matplotlib
 numpy
 opencv-python
@@ -15,3 +17,4 @@ onnxruntime
 
 future-fstrings
 tensorflow-gpu
+tensorflow
