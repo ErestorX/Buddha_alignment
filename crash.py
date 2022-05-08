@@ -455,6 +455,7 @@ projected = [[[-29.5429, 61.3264],
               [118.2528, 206.0243],
               [112.8788, 208.0378]]]
 
+
 def try_differences(gt3d, output, gt2ds, transformations, projecteds):
     gt3d, output, gt2ds, transformations, projecteds = np.asarray(gt3d), np.asarray(output), np.asarray(gt2ds), np.asarray(transformations), np.asarray(projecteds)
     fig = plt.figure(figsize=(8, 8))
@@ -522,6 +523,7 @@ def try_ds(loader):
             plt.scatter(X, Y, c='r', s=5)
             plt.show()
             plt.close()
+
 
 def try_original_ds(ds):
     for artifact in ds:

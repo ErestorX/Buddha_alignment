@@ -78,15 +78,18 @@ def crop_img(img, roi_box):
     return res
 
 
-def points_on_image(image, bbox, pts3d):
+def points_on_image(image, bbox, pts3d, dir=None):
     fig = plt.figure()
     ax = fig.add_subplot(111)
     pts3d = pts3d.detach().cpu().numpy()[:, :2]
     pts3d = pts3d.astype(np.int32)
     ax.imshow(image)
-    ax.scatter(pts3d[:, 0], pts3d[:, 1], c="red", s=10)
+    ax.scatter(pts3d[:, 0], pts3d[:, 1], c="red", s=5)
     ax.add_patch(Rectangle((bbox[0], bbox[1]), bbox[2] - bbox[0], bbox[3] - bbox[1], fill=False, edgecolor='red', linewidth=2))
-    plt.show()
+    if dir is not None:
+        plt.savefig(dir)
+    else:
+        plt.show()
     plt.close(fig)
 
 
@@ -194,8 +197,56 @@ def load_model(model, checkpoint_fp):
     return model
 
 
+class Loss3D(nn.Module):
+    def __call__(self, points_x, points_y):
+        loss = 0
+        points_y = points_y[:68]
+        for x, y, in zip(points_x, points_y):
+            loss += torch.sqrt((y[0] - x[0]) ** 2 + (y[1] - x[1]) ** 2 + (y[2] - x[2]) ** 2)
+        return loss
+
+
+class Loss2D(nn.Module):
+    def __call__(self, points_x, points_y):
+        loss = 0
+        points_y = points_y[68:]
+        for id_view in range(len(points_y)//68):
+            pt_y = points_y[id_view*68:(id_view+1)*68]
+            scale, rotation, translation = pt_y[0, 2], pt_y[0, 3:12].reshape((3, 3)), pt_y[0, 12:]
+            pt_y = pt_y[:, :2]
+            x_proj = (points_x - translation)
+            tmp = torch.linalg.inv(scale * rotation)
+            x_proj = torch.matmul(x_proj, tmp)
+            x_proj = x_proj[:, :2]
+            loss_view = 0
+            count_visible = 0
+            for x, y, in zip(x_proj, pt_y):
+                if y[0] >= 0 or y[1] >= 0:
+                    count_visible += 1
+                    loss_view += torch.sqrt((y[0] - x[0]) ** 2 + (y[1] - x[1]) ** 2)
+            loss += loss_view / count_visible
+        loss = loss / (len(points_y)//68)
+        return loss / (len(points_y)//68)
+
+
+class Loss_fn(nn.Module):
+    def __init__(self, enable_2d, weight_2d=0.5):
+        super().__init__()
+        self.loss3D = Loss3D()
+        self.loss2D = Loss2D()
+        self.enable_2d = enable_2d
+        self.weight_3d = 1 - weight_2d
+        self.weight_2d = weight_2d
+
+    def __call__(self, x, y):
+        if self.enable_2d:
+            return self.weight_3d*self.loss3D(x, y) + self.weight_2d*self.loss2D(x, y)
+        else:
+            return self.loss3D(x, y)
+
+
 class HeteroFramework(nn.Module):
-    def __init__(self, num_graph_steps, train_tddfa=False, train_graph=True):
+    def __init__(self, num_graph_steps, train_tddfa=False, train_graph=True, cuda=True):
         super().__init__()
         torch.set_grad_enabled(True)
         self.train_tddfa = train_tddfa
@@ -226,6 +277,9 @@ class HeteroFramework(nn.Module):
         self.w_shp_base = torch.from_numpy(bfm.w_shp_base).cuda()
         self.w_exp_base = torch.from_numpy(bfm.w_exp_base).cuda()
 
+        if cuda:
+            self.to_cuda()
+
     def to_cuda(self):
         self.tddfa.cuda()
         self.graph.cuda()
@@ -240,6 +294,10 @@ class HeteroFramework(nn.Module):
             pts3d = similar_transform(pts3d, bbox, 120).T
             images_pts = pts3d.unsqueeze(0) if images_pts is None else torch.cat((images_pts, pts3d.unsqueeze(0)), dim=0)
         return images_pts
+
+    def revert_pred(self, images_pts, bboxes):
+        poits_3d = reverse_similar_transform(images_pts.T, bboxes, 120)
+
 
     def forward(self, images, bboxes):
         vects = {'R':torch.zeros((1, 12)).cuda(), 'S':torch.zeros((1, 40)).cuda(), 'E':torch.zeros((1, 10)).cuda()}
@@ -270,7 +328,6 @@ class HeteroFramework(nn.Module):
 if __name__ == '__main__':
     train_ds, test_ds = get_dataset()
     framework = HeteroFramework(num_graph_steps=3)
-    framework.to_cuda()
     for images, bboxes, gts in test_ds[:1]:
         base, lin_trans, new_bboxes = framework(images, bboxes)
         images_points = framework.convert_pred(base, lin_trans, new_bboxes)
